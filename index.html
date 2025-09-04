@@ -65,6 +65,14 @@
         <div>連続: <span id="consecutive">0</span></div>
     </div>
     
+    <div id="demoText" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+         background: rgba(255, 255, 255, 0.95); color: #333; padding: 20px; border-radius: 10px; 
+         font-size: 18px; font-weight: bold; text-align: center; z-index: 1000;
+         box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 2px solid #FF6347;">
+        🎮 デモプレイ中 🎮<br>
+        <span style="font-size: 14px; color: #666;">何かキーを押すとプレイできます</span>
+    </div>
+    
     <canvas id="gameCanvas" width="800" height="600"></canvas>
     
     <div id="instructions">
@@ -94,6 +102,14 @@
         let level = 1;
         let consecutiveHits = 0;
         let lastBombRefillTime = 0;
+        
+        // デモモード管理
+        let demoState = {
+            isDemo: false,
+            lastUserInput: Date.now(),
+            demoStartTime: 0,
+            demoActionTimer: 0
+        };
         
         // キー入力管理
         let keys = {};
@@ -491,10 +507,25 @@
             ctx.stroke();
             
             // 船の描画
-            ctx.fillStyle = '#8B4513';
+            if (demoState.isDemo) {
+                ctx.shadowColor = '#00ffff';
+                ctx.shadowBlur = 15;
+                ctx.fillStyle = '#00ffff';
+            } else {
+                ctx.fillStyle = '#8B4513';
+            }
             ctx.fillRect(ship.x - ship.width/2, ship.y, ship.width, ship.height);
-            ctx.fillStyle = '#654321';
+            
+            if (demoState.isDemo) {
+                ctx.fillStyle = '#0099cc';
+            } else {
+                ctx.fillStyle = '#654321';
+            }
             ctx.fillRect(ship.x - ship.width/4, ship.y - 10, ship.width/2, 10);
+            
+            if (demoState.isDemo) {
+                ctx.shadowBlur = 0;
+            }
             
             // ゲームオブジェクトの描画
             submarines.forEach(sub => sub.draw());
@@ -510,7 +541,115 @@
             document.getElementById('consecutive').textContent = consecutiveHits;
         }
         
+        // デモモード関連関数
+        function checkDemoMode() {
+            if (demoState.isDemo || gameRunning) return;
+            
+            // 5秒間操作がなければデモモード開始
+            if (Date.now() - demoState.lastUserInput > 5000) {
+                startDemo();
+            }
+        }
+        
+        function startDemo() {
+            demoState.isDemo = true;
+            demoState.demoStartTime = Date.now();
+            demoState.demoActionTimer = 0;
+            
+            // デモ表示を表示
+            document.getElementById('demoText').style.display = 'block';
+            
+            // デモゲームを自動開始
+            setTimeout(() => {
+                if (demoState.isDemo) {
+                    startGame();
+                }
+            }, 1000);
+        }
+        
+        function stopDemo() {
+            demoState.isDemo = false;
+            demoState.lastUserInput = Date.now();
+            
+            // デモ表示を非表示
+            document.getElementById('demoText').style.display = 'none';
+        }
+        
+        function updateDemoAI() {
+            demoState.demoActionTimer++;
+            
+            if (gameRunning) {
+                // AIによる船の移動制御
+                const targetSubmarine = submarines.find(sub => sub.y > seaLevel);
+                
+                if (targetSubmarine) {
+                    // 最寄りの潜水艦を追跡
+                    const shipCenterX = ship.x + ship.width / 2;
+                    const subCenterX = targetSubmarine.x + targetSubmarine.width / 2;
+                    
+                    if (Math.abs(shipCenterX - subCenterX) > 20) {
+                        if (shipCenterX < subCenterX) {
+                            keys['ArrowRight'] = true;
+                            keys['ArrowLeft'] = false;
+                        } else {
+                            keys['ArrowLeft'] = true;
+                            keys['ArrowRight'] = false;
+                        }
+                    } else {
+                        keys['ArrowLeft'] = false;
+                        keys['ArrowRight'] = false;
+                    }
+                    
+                    // 適切な位置で爆弾投下
+                    if (Math.abs(shipCenterX - subCenterX) < 50 && bombsLeft > 0 && 
+                        demoState.demoActionTimer % 45 === 0) { // 約0.75秒間隔
+                        bombs.push(new Bomb(ship.x, ship.y + ship.height, 'left'));
+                        bombsLeft--;
+                    }
+                } else {
+                    // 潜水艦がない場合は左右に軽く移動
+                    if (demoState.demoActionTimer % 120 < 60) {
+                        keys['ArrowRight'] = true;
+                        keys['ArrowLeft'] = false;
+                    } else {
+                        keys['ArrowLeft'] = true;
+                        keys['ArrowRight'] = false;
+                    }
+                }
+                
+                // ゲームオーバー時の処理
+                if (!gameRunning && demoState.isDemo) {
+                    setTimeout(() => {
+                        if (demoState.isDemo) {
+                            // スコアをリセットしてゲーム再開
+                            score = 0;
+                            bombsLeft = 20;
+                            level = 1;
+                            consecutiveHits = 0;
+                            submarines.length = 0;
+                            whales.length = 0;
+                            bombs.length = 0;
+                            explosions.length = 0;
+                            messages.length = 0;
+                            updateDisplay();
+                            startGame();
+                        }
+                    }, 2000);
+                }
+            }
+        }
+        
         function gameLoop() {
+            // デモモードチェック
+            if (!demoState.isDemo && !gameRunning) {
+                checkDemoMode();
+            }
+            
+            // デモモード中のAI制御
+            if (demoState.isDemo) {
+                updateDemoAI();
+            }
+            
             updateGame();
             drawGame();
             requestAnimationFrame(gameLoop);
@@ -519,6 +658,13 @@
         // キーボード操作
         document.addEventListener('keydown', (e) => {
             keys[e.key] = true;
+            
+            // ユーザー入力があったらデモモードを停止
+            if (demoState.isDemo) {
+                stopDemo();
+            }
+            
+            demoState.lastUserInput = Date.now();
             
             // スペースキーまたはZキーで爆弾投下（左側）
             if ((e.key === ' ' || e.key.toLowerCase() === 'z') && gameRunning && bombsLeft > 0) {
@@ -536,6 +682,7 @@
         
         document.addEventListener('keyup', (e) => {
             keys[e.key] = false;
+            demoState.lastUserInput = Date.now();
         });
         
         canvas.addEventListener('click', (e) => {
