@@ -54,20 +54,45 @@ class SoundSystem {
         this.audioContext = null;
         this.masterVolume = 0.3;
         this.soundEnabled = true;
-        this.initAudio();
+        this.initialized = false;
     }
     
     initAudio() {
+        if (this.initialized) return;
+        
         try {
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            
+            // AudioContextが作成された直後は"suspended"状態の場合があるので、再開を試みる
+            if (this.audioContext.state === 'suspended') {
+                return; // ユーザージェスチャー後に再開される
+            }
+            
+            this.initialized = true;
         } catch (e) {
             console.warn('Web Audio API not supported');
             this.soundEnabled = false;
         }
     }
     
+    async resumeAudioContext() {
+        if (!this.audioContext) {
+            this.initAudio();
+        }
+        
+        if (this.audioContext && this.audioContext.state === 'suspended') {
+            try {
+                await this.audioContext.resume();
+                this.initialized = true;
+            } catch (e) {
+                console.warn('Failed to resume audio context:', e);
+                this.soundEnabled = false;
+            }
+        }
+    }
+    
     createOscillator(frequency, type = 'sine') {
-        if (!this.soundEnabled || !this.audioContext) return null;
+        if (!this.soundEnabled || !this.audioContext || this.audioContext.state === 'suspended') return null;
         
         const oscillator = this.audioContext.createOscillator();
         const gainNode = this.audioContext.createGain();
@@ -309,7 +334,27 @@ class SoundSystem {
 }
 
 // サウンドシステムのインスタンスを作成
-const soundSystem = new SoundSystem();
+// サウンドシステムは遅延初期化
+let soundSystem;
+
+function initSoundSystem() {
+    if (!soundSystem) {
+        soundSystem = new SoundSystem();
+    }
+    return soundSystem;
+}
+
+function safePlaySound(soundMethod, ...args) {
+    try {
+        const sound = initSoundSystem();
+        if (sound && typeof sound[soundMethod] === 'function') {
+            sound[soundMethod](...args);
+        }
+    } catch (e) {
+        // サウンド再生エラーを無視（ゲームは継続）
+        console.warn('Sound playback error:', e);
+    }
+}
 
 class SmokeParticle {
     constructor(x, y, type = 'light') {
@@ -509,7 +554,7 @@ class Submarine {
                     this.torpedoCooldown = 3000 + Math.random() * 4000; // 新しいクールダウンを設定
                     
                     // 魚雷発射音
-                    soundSystem.playSubmarineAttack();
+                    safePlaySound('playSubmarineAttack');
                 }
             }
         }
@@ -834,8 +879,8 @@ function checkCollisions() {
             if (bomb.x > sub.x && bomb.x < sub.x + sub.width &&
                 bomb.y > sub.y && bomb.y < sub.y + sub.height) {
                 explosions.push(new Explosion(bomb.x, bomb.y));
-                soundSystem.playExplosion();
-                soundSystem.playSubmarineHit();
+                safePlaySound('playExplosion');
+                safePlaySound('playSubmarineHit');
                 score += sub.points;
                 consecutiveHits++;
                 
@@ -843,7 +888,7 @@ function checkCollisions() {
                 if (sub.isLarge) {
                     bombsLeft += 1;
                     showMessage("+1 爆弾！", bomb.x, bomb.y - 30);
-                    soundSystem.playPowerUp();
+                    safePlaySound('playPowerUp');
                 }
                 
                 // 連続ヒット5回で爆弾+2
@@ -851,7 +896,7 @@ function checkCollisions() {
                     bombsLeft += 2;
                     consecutiveHits = 0;
                     showMessage("連続ヒット！+2 爆弾！", bomb.x, bomb.y - 50);
-                    soundSystem.playPowerUp();
+                    safePlaySound('playPowerUp');
                 }
                 
                 bombs.splice(bombIndex, 1);
@@ -867,8 +912,8 @@ function checkCollisions() {
             );
             if (distance < whale.width/2) {
                 explosions.push(new Explosion(bomb.x, bomb.y));
-                soundSystem.playExplosion();
-                soundSystem.playWhaleSound();
+                safePlaySound('playExplosion');
+                safePlaySound('playWhaleSound');
                 score += whale.points;
                 consecutiveHits++;
                 
@@ -907,7 +952,7 @@ function updateGame() {
     
     // 船が移動している時は低頻度でエンジン音を再生
     if (shipMoved && Math.random() < 0.05) {
-        soundSystem.playShipEngine();
+        safePlaySound('playShipEngine');
     }
     
     // 潜水艦の更新
@@ -931,7 +976,7 @@ function updateGame() {
                 bombsLeft = Math.max(0, bombsLeft - 2);
                 missedBombs = 0;
                 showMessage("連続ミス！爆弾-2", canvas.width/2, canvas.height - 50);
-                soundSystem.playHurt();
+                safePlaySound('playHurt');
             }
             bombs.splice(index, 1);
         }
@@ -975,8 +1020,8 @@ function updateGame() {
                 }
             }
             
-            soundSystem.playExplosion();
-            soundSystem.playHurt();
+            safePlaySound('playExplosion');
+            safePlaySound('playHurt');
             enemyTorpedoes.splice(index, 1);
             consecutiveHits = 0; // 連続ヒット数をリセット
         }
@@ -1041,7 +1086,7 @@ function updateGame() {
         level = newLevel;
         bombsLeft += levelDiff * 5; // 爆弾補充を減少
         showMessage(`レベル ${level}！+${levelDiff * 5} 爆弾！`, canvas.width/2, canvas.height/2);
-        soundSystem.playLevelUp();
+        safePlaySound('playLevelUp');
         consecutiveHits = 0; // 連続ヒット数リセット
         missedBombs = 0; // ミス数リセット
     }
@@ -1063,7 +1108,7 @@ function updateGame() {
     // ゲームオーバー判定
     if ((bombsLeft <= 0 && bombs.length === 0) || hitCount >= maxHitCount) {
         gameRunning = false;
-        soundSystem.playGameOver();
+        safePlaySound('playGameOver');
         const reason = hitCount >= maxHitCount ? '3回被弾' : '爆弾切れ';
         
         // UI表示制御
@@ -1258,7 +1303,7 @@ function updateDemoAI() {
                 demoState.demoActionTimer % 45 === 0) { // 約0.75秒間隔
                 bombs.push(new Bomb(ship.x, ship.y + ship.height, 'left'));
                 bombsLeft--;
-                soundSystem.playBombDrop();
+                safePlaySound('playBombDrop');
             }
         } else {
             // 潜水艦がない場合は左右に軽く移動
@@ -1312,7 +1357,11 @@ function gameLoop() {
 }
 
 // キーボード操作
-document.addEventListener('keydown', (e) => {
+document.addEventListener('keydown', async (e) => {
+    // サウンドシステムを初期化してAudioContextを再開（ユーザージェスチャーが必要）
+    const sound = initSoundSystem();
+    await sound.resumeAudioContext();
+    
     keys[e.key] = true;
     
     // ユーザー入力があったらデモモードを停止
@@ -1334,14 +1383,14 @@ document.addEventListener('keydown', (e) => {
         e.preventDefault();
         bombs.push(new Bomb(ship.x - ship.width/4, ship.y + ship.height, 'left'));
         bombsLeft--;
-        soundSystem.playBombDrop();
+        safePlaySound('playBombDrop');
     }
     
     // Xキーで爆弾投下（右側）
     if (e.key.toLowerCase() === 'x' && gameRunning && bombsLeft > 0) {
         bombs.push(new Bomb(ship.x + ship.width/4, ship.y + ship.height, 'right'));
         bombsLeft--;
-        soundSystem.playBombDrop();
+        safePlaySound('playBombDrop');
     }
     
     // Mキーでサウンド切り替え
@@ -1367,10 +1416,14 @@ canvas.addEventListener('click', (e) => {
         bombs.push(new Bomb(ship.x + ship.width/4, ship.y + ship.height, 'right'));
     }
     bombsLeft--;
-    soundSystem.playBombDrop();
+    safePlaySound('playBombDrop');
 });
 
-function startGame() {
+async function startGame() {
+    // サウンドシステムを初期化してAudioContextを再開（ユーザージェスチャーが必要）
+    const sound = initSoundSystem();
+    await sound.resumeAudioContext();
+    
     gameRunning = true;
     score = 0;
     bombsLeft = maxBombs;
@@ -1401,13 +1454,18 @@ function resetGame() {
 }
 
 function toggleSound() {
-    const isEnabled = soundSystem.toggleSound();
+    const sound = initSoundSystem();
+    const isEnabled = sound.toggleSound();
     const soundBtn = document.getElementById('soundBtn');
     soundBtn.textContent = isEnabled ? '🔊 音ON' : '🔇 音OFF';
 }
 
 // モバイル用タッチコントロール関数
-function touchMove(direction) {
+async function touchMove(direction) {
+    // サウンドシステムを初期化してAudioContextを再開（ユーザージェスチャーが必要）
+    const sound = initSoundSystem();
+    await sound.resumeAudioContext();
+    
     if (!gameRunning) return;
     touchMoveDirection = direction;
     if (direction === 'left') {
@@ -1423,7 +1481,11 @@ function stopMove() {
     keys['ArrowRight'] = false;
 }
 
-function dropBomb(side) {
+async function dropBomb(side) {
+    // サウンドシステムを初期化してAudioContextを再開（ユーザージェスチャーが必要）
+    const sound = initSoundSystem();
+    await sound.resumeAudioContext();
+    
     if (!gameRunning || bombsLeft <= 0) return;
     
     if (side === 'left') {
@@ -1434,7 +1496,7 @@ function dropBomb(side) {
         bombs.push(new Bomb(ship.x + ship.width/4, ship.y + ship.height, 'right'));
     }
     bombsLeft--;
-    soundSystem.playBombDrop();
+    safePlaySound('playBombDrop');
 }
 
 // 画面サイズに応じてキャンバスをリサイズ
