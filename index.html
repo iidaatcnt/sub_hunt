@@ -9,6 +9,12 @@
 <body>
     <h1>🚢 Sub Hunt - 潜水艦ゲーム 🐙</h1>
     
+    <div style="text-align: center; margin: 10px 0;">
+        <button onclick="startGame()" style="font-size: 18px; padding: 10px 20px;">ゲーム開始</button>
+        <button onclick="resetGame()" style="font-size: 16px; padding: 8px 15px; margin-left: 10px;">リセット</button>
+        <button onclick="toggleSound()" id="soundBtn" style="font-size: 16px; padding: 8px 15px; margin-left: 10px;">🔊 音ON</button>
+    </div>
+    
     <div id="gameInfo">
         <div>スコア: <span id="score">0</span></div>
         <div>爆弾: <span id="bombs">15</span></div>
@@ -26,12 +32,6 @@
     </div>
     
     <canvas id="gameCanvas" width="800" height="600"></canvas>
-    
-    <div style="text-align: center; margin-top: 10px;">
-        <button onclick="startGame()" style="font-size: 18px; padding: 10px 20px;">ゲーム開始</button>
-        <button onclick="resetGame()" style="font-size: 16px; padding: 8px 15px; margin-left: 10px;">リセット</button>
-        <button onclick="toggleSound()" id="soundBtn" style="font-size: 16px; padding: 8px 15px; margin-left: 10px;">🔊 音ON</button>
-    </div>
     
 
     <script src="game.js"></script>
