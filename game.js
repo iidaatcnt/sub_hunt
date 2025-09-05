@@ -1428,6 +1428,8 @@ function dropBomb(side) {
     
     if (side === 'left') {
         bombs.push(new Bomb(ship.x - ship.width/4, ship.y + ship.height, 'left'));
+    } else if (side === 'center') {
+        bombs.push(new Bomb(ship.x, ship.y + ship.height, 'center'));
     } else {
         bombs.push(new Bomb(ship.x + ship.width/4, ship.y + ship.height, 'right'));
     }
