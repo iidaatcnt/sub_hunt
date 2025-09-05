@@ -10,8 +10,7 @@ let bombsLeft = 15;
 let level = 1;
 let consecutiveHits = 0;
 let lastBombRefillTime = 0;
-let hitCount = 0; // 被攻撃回数（3回で沈没）
-let sinkCount = 0; // 沈没回数（3回でゲームオーバー）
+let hitCount = 0; // 被攻撃回数（3回でゲームオーバー）
 let invulnerableTime = 0;
 let missedBombs = 0;
 let enemyTorpedoes = [];
@@ -42,7 +41,7 @@ const seaLevel = 120;
 // ゲーム設定
 const bombSpeed = 1.5;
 const maxBombs = 15;
-const maxSinkCount = 3; // 3回沈没でゲームオーバー
+const maxHitCount = 3; // 3回被弾でゲームオーバー
 const invulnerableDuration = 180; // 3秒間無敵（60fps*3）
 
 // サウンドシステム
@@ -945,37 +944,30 @@ function updateGame() {
             invulnerableTime = invulnerableDuration;
             explosions.push(new Explosion(torpedo.x, torpedo.y));
             
-            if (hitCount >= 3) {
-                // 3回攻撃で沈没
-                sinkCount++;
-                hitCount = 0; // 被攻撃回数をリセット
-                showMessage(`沈没！残り${maxSinkCount - sinkCount}回`, ship.x, ship.y - 30);
-                
-                // 沈没時の大量の煙エフェクト
+            // 被弾メッセージと煙エフェクト
+            showMessage(`被弾！（${hitCount}/3）`, ship.x, ship.y - 30);
+            
+            // 被弾時の煙エフェクト
+            if (hitCount === 1) {
+                // 1回目: 軽い煙
+                for (let i = 0; i < 8; i++) {
+                    smokeParticles.push(new SmokeParticle(ship.x + ship.width/2, ship.y - 5, 'light'));
+                }
+            } else if (hitCount === 2) {
+                // 2回目: より大量の重い煙
+                for (let i = 0; i < 12; i++) {
+                    smokeParticles.push(new SmokeParticle(ship.x + ship.width/2, ship.y - 5, 'heavy'));
+                }
+                for (let i = 0; i < 6; i++) {
+                    smokeParticles.push(new SmokeParticle(ship.x + ship.width/2, ship.y - 10, 'light'));
+                }
+            } else if (hitCount >= 3) {
+                // 3回目: ゲームオーバー用の大量煙エフェクト
                 for (let i = 0; i < 25; i++) {
                     smokeParticles.push(new SmokeParticle(ship.x + ship.width/2, ship.y - 5, 'heavy'));
                 }
                 for (let i = 0; i < 15; i++) {
                     smokeParticles.push(new SmokeParticle(ship.x + ship.width/2, ship.y - 15, 'light'));
-                }
-            } else {
-                // 1-2回目の攻撃
-                showMessage(`被弾！（${hitCount}/3）`, ship.x, ship.y - 30);
-                
-                // 被弾時の初期煙エフェクト
-                if (hitCount === 1) {
-                    // 1回目: 軽い煙
-                    for (let i = 0; i < 8; i++) {
-                        smokeParticles.push(new SmokeParticle(ship.x + ship.width/2, ship.y - 5, 'light'));
-                    }
-                } else if (hitCount === 2) {
-                    // 2回目: より大量の重い煙
-                    for (let i = 0; i < 12; i++) {
-                        smokeParticles.push(new SmokeParticle(ship.x + ship.width/2, ship.y - 5, 'heavy'));
-                    }
-                    for (let i = 0; i < 6; i++) {
-                        smokeParticles.push(new SmokeParticle(ship.x + ship.width/2, ship.y - 10, 'light'));
-                    }
                 }
             }
             
@@ -1065,10 +1057,10 @@ function updateGame() {
     }
     
     // ゲームオーバー判定
-    if ((bombsLeft <= 0 && bombs.length === 0) || sinkCount >= maxSinkCount) {
+    if ((bombsLeft <= 0 && bombs.length === 0) || hitCount >= maxHitCount) {
         gameRunning = false;
         soundSystem.playGameOver();
-        const reason = sinkCount >= maxSinkCount ? '3回沈没' : '爆弾切れ';
+        const reason = hitCount >= maxHitCount ? '3回被弾' : '爆弾切れ';
         
         // UI表示制御
         document.getElementById('startText').style.display = 'block';
@@ -1106,8 +1098,6 @@ function drawGame() {
     document.getElementById('bombs').textContent = bombsLeft;
     document.getElementById('level').textContent = level;
     document.getElementById('hits').textContent = hitCount;
-    document.getElementById('sinks').textContent = sinkCount;
-    document.getElementById('consecutive').textContent = consecutiveHits;
 }
 
 // 戦艦描画関数
@@ -1282,7 +1272,6 @@ function updateDemoAI() {
                     level = 1;
                     consecutiveHits = 0;
                     hitCount = 0;
-                    sinkCount = 0;
                     submarines.length = 0;
                     whales.length = 0;
                     bombs.length = 0;
@@ -1379,7 +1368,6 @@ function startGame() {
     level = 1;
     consecutiveHits = 0;
     hitCount = 0;
-    sinkCount = 0;
     invulnerableTime = 0;
     missedBombs = 0;
     lastBombRefillTime = Date.now();
