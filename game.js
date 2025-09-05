@@ -10,10 +10,12 @@ let bombsLeft = 15;
 let level = 1;
 let consecutiveHits = 0;
 let lastBombRefillTime = 0;
-let health = 3;
+let hitCount = 0; // 被攻撃回数（3回で沈没）
+let sinkCount = 0; // 沈没回数（3回でゲームオーバー）
 let invulnerableTime = 0;
 let missedBombs = 0;
 let enemyTorpedoes = [];
+let smokeParticles = []; // 煙エフェクト用
 
 // デモモード管理
 let demoState = {
@@ -40,7 +42,7 @@ const seaLevel = 120;
 // ゲーム設定
 const bombSpeed = 1.5;
 const maxBombs = 15;
-const maxHealth = 3;
+const maxSinkCount = 3; // 3回沈没でゲームオーバー
 const invulnerableDuration = 180; // 3秒間無敵（60fps*3）
 
 // サウンドシステム
@@ -305,6 +307,82 @@ class SoundSystem {
 
 // サウンドシステムのインスタンスを作成
 const soundSystem = new SoundSystem();
+
+class SmokeParticle {
+    constructor(x, y, type = 'light') {
+        this.x = x + (Math.random() - 0.5) * 25;
+        this.y = y;
+        this.velocityX = (Math.random() - 0.5) * 0.8;
+        this.velocityY = -Math.random() * 2 - 0.8;
+        this.size = type === 'heavy' ? Math.random() * 4 + 3 : Math.random() * 3 + 2;
+        this.life = 1.0;
+        this.maxLife = type === 'heavy' ? 120 + Math.random() * 60 : 90 + Math.random() * 30; // heavy: 2-3秒, light: 1.5-2秒
+        this.age = 0;
+        this.type = type; // 'light' または 'heavy'
+        this.rotationSpeed = (Math.random() - 0.5) * 0.1;
+        this.rotation = Math.random() * Math.PI * 2;
+    }
+    
+    update() {
+        this.x += this.velocityX;
+        this.y += this.velocityY;
+        this.age++;
+        this.life = 1.0 - (this.age / this.maxLife);
+        this.size += this.type === 'heavy' ? 0.08 : 0.05; // 徐々に大きくなる
+        this.rotation += this.rotationSpeed;
+        
+        // 風の影響で横に流れる
+        this.velocityX += (Math.random() - 0.5) * 0.02;
+    }
+    
+    draw() {
+        if (this.life <= 0) return;
+        
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(this.rotation);
+        
+        const alpha = this.life * (this.type === 'heavy' ? 0.7 : 0.5);
+        
+        if (this.type === 'heavy') {
+            // 黒い濃い煙 - グラデーション付き
+            const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, this.size);
+            gradient.addColorStop(0, `rgba(60, 60, 60, ${alpha})`);
+            gradient.addColorStop(0.5, `rgba(40, 40, 40, ${alpha * 0.8})`);
+            gradient.addColorStop(1, `rgba(20, 20, 20, ${alpha * 0.3})`);
+            ctx.fillStyle = gradient;
+        } else {
+            // 灰色の軽い煙 - グラデーション付き
+            const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, this.size);
+            gradient.addColorStop(0, `rgba(160, 160, 160, ${alpha})`);
+            gradient.addColorStop(0.5, `rgba(120, 120, 120, ${alpha * 0.8})`);
+            gradient.addColorStop(1, `rgba(100, 100, 100, ${alpha * 0.3})`);
+            ctx.fillStyle = gradient;
+        }
+        
+        // より自然な雲のような形
+        ctx.beginPath();
+        ctx.arc(0, 0, this.size, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 追加の小さな円で雲のような質感を作る
+        for (let i = 0; i < 3; i++) {
+            const offsetX = (Math.random() - 0.5) * this.size * 0.8;
+            const offsetY = (Math.random() - 0.5) * this.size * 0.8;
+            const smallSize = this.size * (0.3 + Math.random() * 0.4);
+            
+            ctx.beginPath();
+            ctx.arc(offsetX, offsetY, smallSize, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        ctx.restore();
+    }
+    
+    isDead() {
+        return this.life <= 0;
+    }
+}
 
 class EnemyTorpedo {
     constructor(startX, startY, targetX, targetY) {
@@ -791,10 +869,9 @@ function checkCollisions() {
                 score += whale.points;
                 consecutiveHits++;
                 
-                // クジラ撃破で爆弾+3（ペナルティ付き）
+                // クジラ撃破で爆弾+3（スコアペナルティのみ）
                 bombsLeft += 3;
-                health = Math.max(0, health - 1); // クジラ撃破でHP-1
-                showMessage("クジラ撃破！+3 爆弾（HP-1）", bomb.x, bomb.y - 30);
+                showMessage("クジラ撃破！+3 爆弾", bomb.x, bomb.y - 30);
                 soundSystem.playPowerUp();
                 
                 bombs.splice(bombIndex, 1);
@@ -846,13 +923,12 @@ function updateGame() {
         bomb.update();
         if (bomb.isOffScreen()) {
             missedBombs++;
-            // 連続で5発外すとHP-1
+            // 連続で5発外すと爆弾減少ペナルティ
             if (missedBombs >= 5) {
-                health = Math.max(0, health - 1);
+                bombsLeft = Math.max(0, bombsLeft - 2);
                 missedBombs = 0;
-                showMessage("連続ミス！HP-1", canvas.width/2, canvas.height - 50);
+                showMessage("連続ミス！爆弾-2", canvas.width/2, canvas.height - 50);
                 soundSystem.playHurt();
-                invulnerableTime = invulnerableDuration;
             }
             bombs.splice(index, 1);
         }
@@ -865,16 +941,79 @@ function updateGame() {
             enemyTorpedoes.splice(index, 1);
         } else if (invulnerableTime === 0 && torpedo.isCollidingWithShip(ship)) {
             // 船に魚雷が当たった
-            health = Math.max(0, health - 1);
+            hitCount++;
             invulnerableTime = invulnerableDuration;
             explosions.push(new Explosion(torpedo.x, torpedo.y));
-            showMessage("被弾！HP-1", ship.x, ship.y - 30);
+            
+            if (hitCount >= 3) {
+                // 3回攻撃で沈没
+                sinkCount++;
+                hitCount = 0; // 被攻撃回数をリセット
+                showMessage(`沈没！残り${maxSinkCount - sinkCount}回`, ship.x, ship.y - 30);
+                
+                // 沈没時の大量の煙エフェクト
+                for (let i = 0; i < 25; i++) {
+                    smokeParticles.push(new SmokeParticle(ship.x + ship.width/2, ship.y - 5, 'heavy'));
+                }
+                for (let i = 0; i < 15; i++) {
+                    smokeParticles.push(new SmokeParticle(ship.x + ship.width/2, ship.y - 15, 'light'));
+                }
+            } else {
+                // 1-2回目の攻撃
+                showMessage(`被弾！（${hitCount}/3）`, ship.x, ship.y - 30);
+                
+                // 被弾時の初期煙エフェクト
+                if (hitCount === 1) {
+                    // 1回目: 軽い煙
+                    for (let i = 0; i < 8; i++) {
+                        smokeParticles.push(new SmokeParticle(ship.x + ship.width/2, ship.y - 5, 'light'));
+                    }
+                } else if (hitCount === 2) {
+                    // 2回目: より大量の重い煙
+                    for (let i = 0; i < 12; i++) {
+                        smokeParticles.push(new SmokeParticle(ship.x + ship.width/2, ship.y - 5, 'heavy'));
+                    }
+                    for (let i = 0; i < 6; i++) {
+                        smokeParticles.push(new SmokeParticle(ship.x + ship.width/2, ship.y - 10, 'light'));
+                    }
+                }
+            }
+            
             soundSystem.playExplosion();
             soundSystem.playHurt();
             enemyTorpedoes.splice(index, 1);
             consecutiveHits = 0; // 連続ヒット数をリセット
         }
     });
+    
+    // 煙パーティクルの更新
+    smokeParticles.forEach((particle, index) => {
+        particle.update();
+        if (particle.isDead()) {
+            smokeParticles.splice(index, 1);
+        }
+    });
+    
+    // 継続的な煙生成（被攻撃状態に応じて）
+    if (hitCount > 0) {
+        if (hitCount === 1) {
+            // 1回被弾: 軽い煙を継続的に生成
+            if (Math.random() < 0.6) { // 60%の確率
+                smokeParticles.push(new SmokeParticle(ship.x + ship.width/2, ship.y - 5, 'light'));
+            }
+        } else if (hitCount === 2) {
+            // 2回被弾: より多くの重い煙を生成
+            if (Math.random() < 0.8) { // 80%の確率
+                smokeParticles.push(new SmokeParticle(ship.x + ship.width/2 - 5, ship.y - 5, 'heavy'));
+            }
+            if (Math.random() < 0.6) { // 追加の煙
+                smokeParticles.push(new SmokeParticle(ship.x + ship.width/2 + 5, ship.y - 5, 'heavy'));
+            }
+            if (Math.random() < 0.3) { // さらに追加の軽い煙
+                smokeParticles.push(new SmokeParticle(ship.x + ship.width/2, ship.y - 10, 'light'));
+            }
+        }
+    }
     
     // 爆発の更新
     explosions.forEach((explosion, index) => {
@@ -905,8 +1044,7 @@ function updateGame() {
         let levelDiff = newLevel - level;
         level = newLevel;
         bombsLeft += levelDiff * 5; // 爆弾補充を減少
-        health = Math.min(maxHealth, health + 1); // HP回復
-        showMessage(`レベル ${level}！+${levelDiff * 5} 爆弾 HP回復！`, canvas.width/2, canvas.height/2);
+        showMessage(`レベル ${level}！+${levelDiff * 5} 爆弾！`, canvas.width/2, canvas.height/2);
         soundSystem.playLevelUp();
         consecutiveHits = 0; // 連続ヒット数リセット
         missedBombs = 0; // ミス数リセット
@@ -927,10 +1065,10 @@ function updateGame() {
     }
     
     // ゲームオーバー判定
-    if ((bombsLeft <= 0 && bombs.length === 0) || health <= 0) {
+    if ((bombsLeft <= 0 && bombs.length === 0) || sinkCount >= maxSinkCount) {
         gameRunning = false;
         soundSystem.playGameOver();
-        const reason = health <= 0 ? '体力切れ' : '爆弾切れ';
+        const reason = sinkCount >= maxSinkCount ? '3回沈没' : '爆弾切れ';
         
         // UI表示制御
         document.getElementById('startText').style.display = 'block';
@@ -960,13 +1098,15 @@ function drawGame() {
     bombs.forEach(bomb => bomb.draw());
     enemyTorpedoes.forEach(torpedo => torpedo.draw());
     explosions.forEach(explosion => explosion.draw());
+    smokeParticles.forEach(particle => particle.draw());
     messages.forEach(message => message.draw());
     
     // UI更新
     document.getElementById('score').textContent = score;
     document.getElementById('bombs').textContent = bombsLeft;
     document.getElementById('level').textContent = level;
-    document.getElementById('health').textContent = health;
+    document.getElementById('hits').textContent = hitCount;
+    document.getElementById('sinks').textContent = sinkCount;
     document.getElementById('consecutive').textContent = consecutiveHits;
 }
 
@@ -1138,15 +1278,18 @@ function updateDemoAI() {
                 if (demoState.isDemo) {
                     // スコアをリセットしてゲーム再開
                     score = 0;
-                    bombsLeft = 20;
+                    bombsLeft = maxBombs;
                     level = 1;
                     consecutiveHits = 0;
+                    hitCount = 0;
+                    sinkCount = 0;
                     submarines.length = 0;
                     whales.length = 0;
                     bombs.length = 0;
                     explosions.length = 0;
                     messages.length = 0;
                     enemyTorpedoes.length = 0;
+                    smokeParticles.length = 0;
                     startGame();
                 }
             }, 2000);
@@ -1235,7 +1378,8 @@ function startGame() {
     bombsLeft = maxBombs;
     level = 1;
     consecutiveHits = 0;
-    health = maxHealth;
+    hitCount = 0;
+    sinkCount = 0;
     invulnerableTime = 0;
     missedBombs = 0;
     lastBombRefillTime = Date.now();
@@ -1245,6 +1389,7 @@ function startGame() {
     explosions = [];
     messages = [];
     enemyTorpedoes = [];
+    smokeParticles = [];
     ship.x = canvas.width / 2;
     
     // UI表示制御
