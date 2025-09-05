@@ -35,6 +35,10 @@ let whales = [];
 let explosions = [];
 let messages = [];
 
+// モバイル対応
+let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+let touchMoveDirection = null;
+
 // 海面の位置
 const seaLevel = 120;
 
@@ -1402,9 +1406,77 @@ function toggleSound() {
     soundBtn.textContent = isEnabled ? '🔊 音ON' : '🔇 音OFF';
 }
 
-// 初期表示設定
+// モバイル用タッチコントロール関数
+function touchMove(direction) {
+    if (!gameRunning) return;
+    touchMoveDirection = direction;
+    if (direction === 'left') {
+        keys['ArrowLeft'] = true;
+    } else if (direction === 'right') {
+        keys['ArrowRight'] = true;
+    }
+}
+
+function stopMove() {
+    touchMoveDirection = null;
+    keys['ArrowLeft'] = false;
+    keys['ArrowRight'] = false;
+}
+
+function dropBomb(side) {
+    if (!gameRunning || bombsLeft <= 0) return;
+    
+    if (side === 'left') {
+        bombs.push(new Bomb(ship.x - ship.width/4, ship.y + ship.height, 'left'));
+    } else {
+        bombs.push(new Bomb(ship.x + ship.width/4, ship.y + ship.height, 'right'));
+    }
+    bombsLeft--;
+    soundSystem.playBombDrop();
+}
+
+// 画面サイズに応じてキャンバスをリサイズ
+function resizeCanvas() {
+    const container = document.body;
+    const maxWidth = Math.min(800, window.innerWidth - 40);
+    const maxHeight = Math.min(600, window.innerHeight - 200);
+    
+    // アスペクト比を維持
+    const aspectRatio = 800 / 600;
+    let newWidth, newHeight;
+    
+    if (maxWidth / maxHeight > aspectRatio) {
+        newHeight = maxHeight;
+        newWidth = newHeight * aspectRatio;
+    } else {
+        newWidth = maxWidth;
+        newHeight = newWidth / aspectRatio;
+    }
+    
+    canvas.style.width = newWidth + 'px';
+    canvas.style.height = newHeight + 'px';
+    
+    // 船の位置を画面サイズに合わせて調整
+    if (ship.x > canvas.width - ship.width) {
+        ship.x = canvas.width - ship.width;
+    }
+}
+
+// 初期表示設定とモバイル対応
 window.addEventListener('load', function() {
     document.getElementById('startText').style.display = 'block';
+    
+    // モバイルデバイスの場合、タッチコントロールを表示
+    if (isMobile) {
+        document.getElementById('touchControls').style.display = 'block';
+        resizeCanvas();
+    }
+    
+    // 画面リサイズ対応
+    window.addEventListener('resize', resizeCanvas);
+    
+    // 初回リサイズ
+    resizeCanvas();
 });
 
 // ゲーム開始

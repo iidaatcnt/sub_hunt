@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Sub Hunt - 潜水艦ゲーム</title>
     <link rel="stylesheet" href="styles.css">
 </head>
@@ -33,6 +33,19 @@
     
     <canvas id="gameCanvas" width="800" height="600"></canvas>
     
+    <!-- モバイル用タッチコントロール -->
+    <div id="touchControls" style="display: none; position: fixed; bottom: 20px; left: 0; right: 0; text-align: center;">
+        <div style="margin-bottom: 10px;">
+            <button ontouchstart="touchMove('left')" ontouchend="stopMove()" 
+                    style="font-size: 24px; padding: 15px 25px; margin: 0 5px; touch-action: none;">◀</button>
+            <button ontouchstart="dropBomb('left')" 
+                    style="font-size: 24px; padding: 15px 25px; margin: 0 5px; background-color: #ff4444; color: white; touch-action: none;">💣左</button>
+            <button ontouchstart="dropBomb('right')" 
+                    style="font-size: 24px; padding: 15px 25px; margin: 0 5px; background-color: #ff4444; color: white; touch-action: none;">💣右</button>
+            <button ontouchstart="touchMove('right')" ontouchend="stopMove()" 
+                    style="font-size: 24px; padding: 15px 25px; margin: 0 5px; touch-action: none;">▶</button>
+        </div>
+    </div>
 
     <script src="game.js"></script>
 </body>
