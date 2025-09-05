@@ -774,8 +774,15 @@ class Submarine {
 
 class Kraken {
     constructor() {
-        this.x = Math.random() * (canvas.width - 80);
+        // 画面外から登場
+        const side = Math.random() < 0.5 ? 'left' : 'right';
+        if (side === 'left') {
+            this.x = -100; // 左側画面外
+        } else {
+            this.x = canvas.width + 20; // 右側画面外
+        }
         this.y = seaLevel + 150 + Math.random() * 250;
+        this.targetX = Math.random() * (canvas.width - 80); // 目標位置
         this.width = 80;
         this.height = 40;
         this.speedX = (Math.random() - 0.5) * 1;
@@ -784,29 +791,80 @@ class Kraken {
         this.tailOffset = 0;
         this.hp = 2; // クラーケンは2発で撃破
         this.maxHp = 2;
+        
+        // 状態管理
+        this.state = 'appearing'; // 'appearing', 'active', 'sinking', 'dead'
+        this.alpha = 0; // 透明度
+        this.sinkSpeed = 0; // 沈没速度
+        this.fadeSpeed = 0.02; // フェード速度
     }
     
     update() {
-        this.x += this.speedX;
-        this.y += this.speedY;
         this.tailOffset += 0.1;
         
-        // 画面端で反転
-        if (this.x < 0 || this.x > canvas.width - this.width) {
-            this.speedX *= -1;
-        }
-        if (this.y < seaLevel + 100 || this.y > canvas.height - this.height) {
-            this.speedY *= -1;
-        }
-        
-        // ランダムに方向転換
-        if (Math.random() < 0.01) {
-            this.speedX = (Math.random() - 0.5) * 1;
-            this.speedY = (Math.random() - 0.5) * 0.5;
+        if (this.state === 'appearing') {
+            // フェードイン中：画面内に移動
+            this.alpha = Math.min(1.0, this.alpha + this.fadeSpeed);
+            
+            // 目標位置に向かって移動
+            const dx = this.targetX - this.x;
+            if (Math.abs(dx) > 2) {
+                this.x += dx > 0 ? 2 : -2;
+            } else {
+                this.x = this.targetX;
+            }
+            
+            // フェードイン完了で通常状態に
+            if (this.alpha >= 1.0 && Math.abs(this.targetX - this.x) < 5) {
+                this.state = 'active';
+            }
+        } else if (this.state === 'active') {
+            // 通常の行動
+            this.x += this.speedX;
+            this.y += this.speedY;
+            
+            // 画面端で反転
+            if (this.x < 0 || this.x > canvas.width - this.width) {
+                this.speedX *= -1;
+            }
+            if (this.y < seaLevel + 100 || this.y > canvas.height - this.height) {
+                this.speedY *= -1;
+            }
+            
+            // ランダムに方向転換
+            if (Math.random() < 0.01) {
+                this.speedX = (Math.random() - 0.5) * 1;
+                this.speedY = (Math.random() - 0.5) * 0.5;
+            }
+        } else if (this.state === 'sinking') {
+            // 沈没中：下向きに移動しながらフェードアウト
+            this.sinkSpeed += 0.05; // 重力加速
+            this.y += this.sinkSpeed;
+            this.alpha = Math.max(0, this.alpha - this.fadeSpeed);
+            
+            // 完全に沈んで透明になったら削除対象
+            if (this.alpha <= 0 || this.y > canvas.height) {
+                this.state = 'dead';
+            }
         }
     }
     
+    startSinking() {
+        this.state = 'sinking';
+        this.sinkSpeed = 1; // 初期沈没速度
+        this.speedX *= 0.3; // 横移動を減速
+        this.speedY = 0; // 縦の通常移動停止
+    }
+    
+    isDead() {
+        return this.state === 'dead';
+    }
+    
     draw() {
+        // 透明度を設定
+        ctx.save();
+        ctx.globalAlpha = this.alpha;
+        
         // クラーケンの本体（ダメージに応じて色を変化）
         let bodyColor = '#2F4F2F'; // 通常の暗緑色
         if (this.hp === 1) {
@@ -907,6 +965,9 @@ class Kraken {
             ctx.fillRect(spoutX - 4, spoutY - 15, 2, 5);
             ctx.fillRect(spoutX + 2, spoutY - 15, 2, 5);
         }
+        
+        // 透明度を元に戻す
+        ctx.restore();
     }
 }
 
@@ -1020,7 +1081,7 @@ function spawnSubmarine() {
 }
 
 function spawnKraken() {
-    if (krakens.length < 1 && Math.random() < 0.01) {
+    if (krakens.length < 1 && Math.random() < 0.003) { // 0.01 → 0.003 (約1/3に減少)
         krakens.push(new Kraken());
     }
 }
@@ -1071,7 +1132,7 @@ function checkCollisions() {
                 kraken.hp--;
                 
                 if (kraken.hp <= 0) {
-                    // 撃破時
+                    // 撃破時：沈没開始
                     safePlaySound('playKrakenSound');
                     score += kraken.points;
                     consecutiveHits++;
@@ -1081,7 +1142,8 @@ function checkCollisions() {
                     showMessage("クラーケン撃破！+3 爆弾", bomb.x, bomb.y - 30);
                     safePlaySound('playPowerUp');
                     
-                    krakens.splice(krakenIndex, 1);
+                    // 沈没アニメーション開始（即座に削除せず）
+                    kraken.startSinking();
                 } else {
                     // ダメージ時
                     showMessage(`クラーケンにダメージ！ 残りHP: ${kraken.hp}`, bomb.x, bomb.y - 30);
@@ -1127,8 +1189,13 @@ function updateGame() {
         }
     });
     
-    // クジラの更新
-    krakens.forEach(kraken => kraken.update());
+    // クラーケンの更新と死んだクラーケンの削除
+    krakens.forEach((kraken, index) => {
+        kraken.update();
+        if (kraken.isDead()) {
+            krakens.splice(index, 1);
+        }
+    });
     
     // 爆弾の更新
     bombs.forEach((bomb, index) => {
@@ -1668,10 +1735,6 @@ async function startGame() {
     stopDemo();
 }
 
-function resetGame() {
-    gameRunning = false;
-    startGame();
-}
 
 function toggleSound() {
     const sound = initSoundSystem();
