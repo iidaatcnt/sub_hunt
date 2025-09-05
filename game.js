@@ -1098,6 +1098,11 @@ function drawGame() {
     document.getElementById('bombs').textContent = bombsLeft;
     document.getElementById('level').textContent = level;
     document.getElementById('hits').textContent = hitCount;
+    
+    // デバッグ: コンソールで爆弾数を確認
+    if (gameRunning) {
+        console.log('Current bombs:', bombsLeft);
+    }
 }
 
 // 戦艦描画関数
