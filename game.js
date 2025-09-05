@@ -35,7 +35,15 @@ let demoState = {
 let keys = {};
 
 // ゲームオブジェクト
-let ship = { x: 400, y: 80, width: 40, height: 20, speed: 3 };
+let ship = { 
+    x: 400, 
+    y: 80, 
+    width: 40, 
+    height: 20, 
+    speed: 3,
+    targetX: 400, // 目標位置（水中での遅延反応用）
+    acceleration: 0.15 // 加速度（水の抵抗で緩やかに移動）
+};
 let bombs = [];
 let submarines = [];
 let krakens = [];
@@ -51,6 +59,7 @@ const seaLevel = 120;
 
 // ゲーム設定
 const bombSpeed = 1.5;
+const waterBombSpeed = 0.8; // 水中での爆弾速度（抵抗で遅い）
 const maxBombs = 15;
 const maxHitCount = 3; // 3回被弾でゲームオーバー
 const invulnerableDuration = 180; // 3秒間無敵（60fps*3）
@@ -539,7 +548,9 @@ class EnemyTorpedo {
         this.startY = startY;
         this.targetX = targetX;
         this.targetY = targetY;
-        this.speed = 2;
+        this.baseSpeed = 2;
+        this.speed = this.baseSpeed;
+        this.waterResistance = 0.98; // 水の抵抗
         this.width = 12;
         this.height = 4;
         this.trail = [];
@@ -558,6 +569,16 @@ class EnemyTorpedo {
         this.trail.push({x: this.x, y: this.y});
         if (this.trail.length > 5) {
             this.trail.shift();
+        }
+        
+        // 水の抵抗で徐々に減速
+        this.velocityX *= this.waterResistance;
+        this.velocityY *= this.waterResistance;
+        
+        // 水流の影響でわずかにフラつく
+        if (Math.random() < 0.2) {
+            this.velocityX += (Math.random() - 0.5) * 0.1;
+            this.velocityY += (Math.random() - 0.5) * 0.1;
         }
         
         this.x += this.velocityX;
@@ -621,7 +642,11 @@ class Submarine {
         this.y = seaLevel + 50 + Math.random() * 400;
         this.width = 30 + Math.random() * 40;
         this.height = this.width * 0.4;
-        this.speed = (Math.random() * 0.8 + 0.4 + level * 0.1) * (this.x < 0 ? 1 : -1);
+        this.baseSpeed = (Math.random() * 0.8 + 0.4 + level * 0.1) * (this.x < 0 ? 1 : -1);
+        this.speed = this.baseSpeed;
+        this.targetSpeed = this.baseSpeed;
+        this.acceleration = 0.02; // 水中での加速度（遅い反応）
+        this.inertia = 0.95; // 水中での慣性
         this.points = Math.floor(100 / (this.width / 30));
         this.isLarge = this.width > 50;
         this.lastTorpedoTime = 0;
@@ -629,6 +654,13 @@ class Submarine {
     }
     
     update() {
+        // 水中での重い動き - 速度変化のランダム性を追加
+        if (Math.random() < 0.1) {
+            this.targetSpeed = this.baseSpeed * (0.7 + Math.random() * 0.6); // 70%-130%の変動
+        }
+        
+        // 慣性と抵抗を考慮した動き
+        this.speed = this.speed * this.inertia + this.targetSpeed * this.acceleration;
         this.x += this.speed;
         
         // 魚雷発射の判定（海面レベルより下にいる潜水艦のみ）
@@ -837,13 +869,15 @@ class Kraken {
                 this.speedY = (Math.random() - 0.5) * 0.5;
             }
         } else if (this.state === 'sinking') {
-            // 沈没中：下向きに移動しながらフェードアウト
-            this.sinkSpeed += 0.05; // 重力加速
+            // 沈没中：ゆっくりと画面外に沈む（フェードアウトなし）
+            this.sinkSpeed += 0.03; // ゆっくりとした重力加速
             this.y += this.sinkSpeed;
-            this.alpha = Math.max(0, this.alpha - this.fadeSpeed);
             
-            // 完全に沈んで透明になったら削除対象
-            if (this.alpha <= 0 || this.y > canvas.height) {
+            // 水平方向の動きも継続（重い感じ）
+            this.x += this.speedX * 0.7;
+            
+            // 画面外に完全に沈んだら削除対象
+            if (this.y > canvas.height + 50) {
                 this.state = 'dead';
             }
         }
@@ -851,9 +885,10 @@ class Kraken {
     
     startSinking() {
         this.state = 'sinking';
-        this.sinkSpeed = 1; // 初期沈没速度
-        this.speedX *= 0.3; // 横移動を減速
+        this.sinkSpeed = 0.5; // よりゆっくりした初期沈没速度
+        this.speedX *= 0.5; // 横移動を緩やかに減速
         this.speedY = 0; // 縦の通常移動停止
+        this.alpha = 1.0; // 透明度を維持（フェードアウトしない）
     }
     
     isDead() {
@@ -1018,7 +1053,14 @@ class Bomb {
     }
     
     update() {
-        this.y += bombSpeed;
+        // 水中に入ると速度が遅くなる（水の抵抗）
+        const currentSpeed = this.y > seaLevel ? waterBombSpeed : bombSpeed;
+        this.y += currentSpeed;
+        
+        // 水中で微妙にフラつく動き
+        if (this.y > seaLevel && Math.random() < 0.3) {
+            this.x += (Math.random() - 0.5) * 0.8;
+        }
     }
     
     draw() {
@@ -1182,14 +1224,16 @@ function updateEffects() {
         return explosion.life > 0;
     });
     
-    // 戦艦の沈没アニメーション（ゲームオーバー後も継続）
+    // 戦艦の沈没アニメーション（ゲームオーバー後も継続、フレームアウト方式）
     if (shipSinking) {
         const elapsed = Date.now() - sinkingStartTime;
-        const progress = elapsed / sinkingDuration;
         
-        if (progress < 1) {
-            ship.y = sinkStartY + (progress * 200); // 200px沈む
-            
+        // ゆっくりと継続的に沈む（時間制限なし、画面外まで）
+        const sinkSpeed = 0.8; // ゆっくりとした沈没速度
+        ship.y += sinkSpeed;
+        
+        // 画面外に完全に沈むまで煙と泡を継続生成
+        if (ship.y < canvas.height + 50) {
             // 煙と泡を継続的に生成
             if (Math.random() < 0.3) {
                 smokeParticles.push(new SmokeParticle(ship.x + Math.random() * 30 - 15, ship.y - 10));
@@ -1239,16 +1283,20 @@ function updateGame() {
     
     if (!gameRunning) return;
     
-    // 船の移動
+    // 船の移動（水中での遅延反応実装）
     let shipMoved = false;
     if (keys['ArrowLeft'] || keys['a'] || keys['A']) {
-        ship.x = Math.max(ship.width/2, ship.x - ship.speed);
+        ship.targetX = Math.max(ship.width/2, ship.targetX - ship.speed);
         shipMoved = true;
     }
     if (keys['ArrowRight'] || keys['d'] || keys['D']) {
-        ship.x = Math.min(canvas.width - ship.width/2, ship.x + ship.speed);
+        ship.targetX = Math.min(canvas.width - ship.width/2, ship.targetX + ship.speed);
         shipMoved = true;
     }
+    
+    // 水の抵抗で緩やかに目標位置に移動
+    const deltaX = ship.targetX - ship.x;
+    ship.x += deltaX * ship.acceleration;
     
     // 船が移動している時は低頻度でエンジン音を再生
     if (shipMoved && Math.random() < 0.05) {
