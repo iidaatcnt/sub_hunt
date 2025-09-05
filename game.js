@@ -37,6 +37,229 @@ const seaLevel = 120;
 const bombSpeed = 1.5;
 const maxBombs = 20;
 
+// サウンドシステム
+class SoundSystem {
+    constructor() {
+        this.audioContext = null;
+        this.masterVolume = 0.3;
+        this.soundEnabled = true;
+        this.initAudio();
+    }
+    
+    initAudio() {
+        try {
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        } catch (e) {
+            console.warn('Web Audio API not supported');
+            this.soundEnabled = false;
+        }
+    }
+    
+    createOscillator(frequency, type = 'sine') {
+        if (!this.soundEnabled || !this.audioContext) return null;
+        
+        const oscillator = this.audioContext.createOscillator();
+        const gainNode = this.audioContext.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(this.audioContext.destination);
+        
+        oscillator.frequency.setValueAtTime(frequency, this.audioContext.currentTime);
+        oscillator.type = type;
+        
+        return { oscillator, gainNode };
+    }
+    
+    playBombDrop() {
+        if (!this.soundEnabled) return;
+        
+        const nodes = this.createOscillator(200, 'sine');
+        if (!nodes) return;
+        
+        const { oscillator, gainNode } = nodes;
+        
+        // ボムドロップ音：高音から低音に下がる
+        oscillator.frequency.setValueAtTime(400, this.audioContext.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(150, this.audioContext.currentTime + 0.3);
+        
+        gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
+        gainNode.gain.linearRampToValueAtTime(this.masterVolume * 0.4, this.audioContext.currentTime + 0.01);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, this.audioContext.currentTime + 0.3);
+        
+        oscillator.start(this.audioContext.currentTime);
+        oscillator.stop(this.audioContext.currentTime + 0.3);
+    }
+    
+    playExplosion() {
+        if (!this.soundEnabled) return;
+        
+        // 爆発音：ホワイトノイズ風の音
+        const bufferSize = 44100;
+        const buffer = this.audioContext.createBuffer(1, bufferSize, 44100);
+        const data = buffer.getChannelData(0);
+        
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = Math.random() * 2 - 1;
+        }
+        
+        const source = this.audioContext.createBufferSource();
+        const gainNode = this.audioContext.createGain();
+        const filter = this.audioContext.createBiquadFilter();
+        
+        source.buffer = buffer;
+        source.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(this.audioContext.destination);
+        
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(2000, this.audioContext.currentTime);
+        filter.frequency.exponentialRampToValueAtTime(100, this.audioContext.currentTime + 0.5);
+        
+        gainNode.gain.setValueAtTime(this.masterVolume * 0.6, this.audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, this.audioContext.currentTime + 0.5);
+        
+        source.start(this.audioContext.currentTime);
+        source.stop(this.audioContext.currentTime + 0.5);
+    }
+    
+    playSubmarineHit() {
+        if (!this.soundEnabled) return;
+        
+        const nodes = this.createOscillator(300, 'square');
+        if (!nodes) return;
+        
+        const { oscillator, gainNode } = nodes;
+        
+        // 潜水艦ヒット音：金属音風
+        oscillator.frequency.setValueAtTime(400, this.audioContext.currentTime);
+        oscillator.frequency.setValueAtTime(600, this.audioContext.currentTime + 0.05);
+        oscillator.frequency.exponentialRampToValueAtTime(200, this.audioContext.currentTime + 0.2);
+        
+        gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
+        gainNode.gain.linearRampToValueAtTime(this.masterVolume * 0.5, this.audioContext.currentTime + 0.01);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, this.audioContext.currentTime + 0.2);
+        
+        oscillator.start(this.audioContext.currentTime);
+        oscillator.stop(this.audioContext.currentTime + 0.2);
+    }
+    
+    playWhaleSound() {
+        if (!this.soundEnabled) return;
+        
+        const nodes = this.createOscillator(80, 'sine');
+        if (!nodes) return;
+        
+        const { oscillator, gainNode } = nodes;
+        
+        // クジラの鳴き声：低音の長いトーン
+        oscillator.frequency.setValueAtTime(60, this.audioContext.currentTime);
+        oscillator.frequency.linearRampToValueAtTime(120, this.audioContext.currentTime + 0.5);
+        oscillator.frequency.linearRampToValueAtTime(80, this.audioContext.currentTime + 1.0);
+        
+        gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
+        gainNode.gain.linearRampToValueAtTime(this.masterVolume * 0.3, this.audioContext.currentTime + 0.1);
+        gainNode.gain.linearRampToValueAtTime(this.masterVolume * 0.3, this.audioContext.currentTime + 0.8);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, this.audioContext.currentTime + 1.0);
+        
+        oscillator.start(this.audioContext.currentTime);
+        oscillator.stop(this.audioContext.currentTime + 1.0);
+    }
+    
+    playShipEngine() {
+        if (!this.soundEnabled) return;
+        
+        const nodes = this.createOscillator(120, 'sawtooth');
+        if (!nodes) return;
+        
+        const { oscillator, gainNode } = nodes;
+        
+        // エンジン音：低いブーン音
+        oscillator.frequency.setValueAtTime(100, this.audioContext.currentTime);
+        oscillator.frequency.setValueAtTime(130, this.audioContext.currentTime + 0.1);
+        oscillator.frequency.setValueAtTime(110, this.audioContext.currentTime + 0.2);
+        
+        gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
+        gainNode.gain.linearRampToValueAtTime(this.masterVolume * 0.2, this.audioContext.currentTime + 0.05);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, this.audioContext.currentTime + 0.3);
+        
+        oscillator.start(this.audioContext.currentTime);
+        oscillator.stop(this.audioContext.currentTime + 0.3);
+    }
+    
+    playLevelUp() {
+        if (!this.soundEnabled) return;
+        
+        const frequencies = [400, 500, 600, 800, 1000];
+        
+        frequencies.forEach((freq, index) => {
+            const nodes = this.createOscillator(freq, 'sine');
+            if (!nodes) return;
+            
+            const { oscillator, gainNode } = nodes;
+            const startTime = this.audioContext.currentTime + index * 0.1;
+            
+            gainNode.gain.setValueAtTime(0, startTime);
+            gainNode.gain.linearRampToValueAtTime(this.masterVolume * 0.4, startTime + 0.02);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + 0.15);
+            
+            oscillator.start(startTime);
+            oscillator.stop(startTime + 0.15);
+        });
+    }
+    
+    playGameOver() {
+        if (!this.soundEnabled) return;
+        
+        const frequencies = [400, 350, 300, 250, 200];
+        
+        frequencies.forEach((freq, index) => {
+            const nodes = this.createOscillator(freq, 'square');
+            if (!nodes) return;
+            
+            const { oscillator, gainNode } = nodes;
+            const startTime = this.audioContext.currentTime + index * 0.2;
+            
+            gainNode.gain.setValueAtTime(0, startTime);
+            gainNode.gain.linearRampToValueAtTime(this.masterVolume * 0.5, startTime + 0.05);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + 0.4);
+            
+            oscillator.start(startTime);
+            oscillator.stop(startTime + 0.4);
+        });
+    }
+    
+    playPowerUp() {
+        if (!this.soundEnabled) return;
+        
+        const nodes = this.createOscillator(600, 'sine');
+        if (!nodes) return;
+        
+        const { oscillator, gainNode } = nodes;
+        
+        oscillator.frequency.setValueAtTime(600, this.audioContext.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(1200, this.audioContext.currentTime + 0.3);
+        
+        gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
+        gainNode.gain.linearRampToValueAtTime(this.masterVolume * 0.4, this.audioContext.currentTime + 0.05);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, this.audioContext.currentTime + 0.3);
+        
+        oscillator.start(this.audioContext.currentTime);
+        oscillator.stop(this.audioContext.currentTime + 0.3);
+    }
+    
+    toggleSound() {
+        this.soundEnabled = !this.soundEnabled;
+        return this.soundEnabled;
+    }
+    
+    setVolume(volume) {
+        this.masterVolume = Math.max(0, Math.min(1, volume));
+    }
+}
+
+// サウンドシステムのインスタンスを作成
+const soundSystem = new SoundSystem();
+
 class Submarine {
     constructor() {
         this.x = Math.random() < 0.5 ? -50 : canvas.width + 50;
@@ -275,6 +498,8 @@ function checkCollisions() {
             if (bomb.x > sub.x && bomb.x < sub.x + sub.width &&
                 bomb.y > sub.y && bomb.y < sub.y + sub.height) {
                 explosions.push(new Explosion(bomb.x, bomb.y));
+                soundSystem.playExplosion();
+                soundSystem.playSubmarineHit();
                 score += sub.points;
                 consecutiveHits++;
                 
@@ -282,6 +507,7 @@ function checkCollisions() {
                 if (sub.isLarge) {
                     bombsLeft += 2;
                     showMessage("+2 爆弾！", bomb.x, bomb.y - 30);
+                    soundSystem.playPowerUp();
                 }
                 
                 // 連続ヒット5回で爆弾+3
@@ -289,6 +515,7 @@ function checkCollisions() {
                     bombsLeft += 3;
                     consecutiveHits = 0;
                     showMessage("連続ヒット！+3 爆弾！", bomb.x, bomb.y - 50);
+                    soundSystem.playPowerUp();
                 }
                 
                 bombs.splice(bombIndex, 1);
@@ -304,12 +531,15 @@ function checkCollisions() {
             );
             if (distance < whale.width/2) {
                 explosions.push(new Explosion(bomb.x, bomb.y));
+                soundSystem.playExplosion();
+                soundSystem.playWhaleSound();
                 score += whale.points;
                 consecutiveHits++;
                 
                 // クジラ撃破で爆弾+5
                 bombsLeft += 5;
                 showMessage("クジラ撃破！+5 爆弾！", bomb.x, bomb.y - 30);
+                soundSystem.playPowerUp();
                 
                 bombs.splice(bombIndex, 1);
                 whales.splice(whaleIndex, 1);
@@ -329,11 +559,19 @@ function updateGame() {
     if (!gameRunning) return;
     
     // 船の移動
+    let shipMoved = false;
     if (keys['ArrowLeft'] || keys['a'] || keys['A']) {
         ship.x = Math.max(ship.width/2, ship.x - ship.speed);
+        shipMoved = true;
     }
     if (keys['ArrowRight'] || keys['d'] || keys['D']) {
         ship.x = Math.min(canvas.width - ship.width/2, ship.x + ship.speed);
+        shipMoved = true;
+    }
+    
+    // 船が移動している時は低頻度でエンジン音を再生
+    if (shipMoved && Math.random() < 0.05) {
+        soundSystem.playShipEngine();
     }
     
     // 潜水艦の更新
@@ -385,6 +623,7 @@ function updateGame() {
         level = newLevel;
         bombsLeft += levelDiff * 10;
         showMessage(`レベル ${level}！+${levelDiff * 10} 爆弾！`, canvas.width/2, canvas.height/2);
+        soundSystem.playLevelUp();
     }
     
     // 時間経過による爆弾補充（30秒毎に1発）
@@ -393,11 +632,13 @@ function updateGame() {
         bombsLeft += 1;
         lastBombRefillTime = currentTime;
         showMessage("+1 爆弾！", canvas.width/2, 50);
+        soundSystem.playPowerUp();
     }
     
     // ゲームオーバー判定
     if (bombsLeft <= 0 && bombs.length === 0) {
         gameRunning = false;
+        soundSystem.playGameOver();
         alert(`ゲーム終了！スコア: ${score} レベル: ${level}`);
     }
 }
@@ -513,6 +754,7 @@ function updateDemoAI() {
                 demoState.demoActionTimer % 45 === 0) { // 約0.75秒間隔
                 bombs.push(new Bomb(ship.x, ship.y + ship.height, 'left'));
                 bombsLeft--;
+                soundSystem.playBombDrop();
             }
         } else {
             // 潜水艦がない場合は左右に軽く移動
@@ -578,12 +820,19 @@ document.addEventListener('keydown', (e) => {
         e.preventDefault();
         bombs.push(new Bomb(ship.x - ship.width/4, ship.y + ship.height, 'left'));
         bombsLeft--;
+        soundSystem.playBombDrop();
     }
     
     // Xキーで爆弾投下（右側）
     if (e.key.toLowerCase() === 'x' && gameRunning && bombsLeft > 0) {
         bombs.push(new Bomb(ship.x + ship.width/4, ship.y + ship.height, 'right'));
         bombsLeft--;
+        soundSystem.playBombDrop();
+    }
+    
+    // Mキーでサウンド切り替え
+    if (e.key.toLowerCase() === 'm') {
+        toggleSound();
     }
 });
 
@@ -604,6 +853,7 @@ canvas.addEventListener('click', (e) => {
         bombs.push(new Bomb(ship.x + ship.width/4, ship.y + ship.height, 'right'));
     }
     bombsLeft--;
+    soundSystem.playBombDrop();
 });
 
 function startGame() {
@@ -624,6 +874,12 @@ function startGame() {
 function resetGame() {
     gameRunning = false;
     startGame();
+}
+
+function toggleSound() {
+    const isEnabled = soundSystem.toggleSound();
+    const soundBtn = document.getElementById('soundBtn');
+    soundBtn.textContent = isEnabled ? '🔊 音ON' : '🔇 音OFF';
 }
 
 // ゲーム開始
