@@ -12,7 +12,7 @@ let consecutiveHits = 0;
 let lastBombRefillTime = 0;
 let hitCount = 0; // 被攻撃回数（3回でゲームオーバー）
 let invulnerableTime = 0;
-let missedBombs = 0;
+// let missedBombs = 0; // 不要になったので削除
 let enemyTorpedoes = [];
 let smokeParticles = []; // 煙エフェクト用
 let bubbleParticles = []; // 泡エフェクト用
@@ -1162,7 +1162,81 @@ function checkCollisions() {
     });
 }
 
+// ゲームオーバー後も継続するエフェクト系の更新
+function updateEffects() {
+    // 煙エフェクトの更新
+    smokeParticles = smokeParticles.filter(particle => {
+        particle.update();
+        return particle.life > 0;
+    });
+    
+    // 泡エフェクトの更新
+    bubbleParticles = bubbleParticles.filter(particle => {
+        particle.update();
+        return particle.y > 0;
+    });
+    
+    // 爆発エフェクトの更新（ゲームオーバー後も継続）
+    explosions = explosions.filter(explosion => {
+        explosion.update();
+        return explosion.life > 0;
+    });
+    
+    // 戦艦の沈没アニメーション（ゲームオーバー後も継続）
+    if (shipSinking) {
+        const elapsed = Date.now() - sinkingStartTime;
+        const progress = elapsed / sinkingDuration;
+        
+        if (progress < 1) {
+            ship.y = sinkStartY + (progress * 200); // 200px沈む
+            
+            // 煙と泡を継続的に生成
+            if (Math.random() < 0.3) {
+                smokeParticles.push(new SmokeParticle(ship.x + Math.random() * 30 - 15, ship.y - 10));
+            }
+            if (Math.random() < 0.4) {
+                bubbleParticles.push(new BubbleParticle(ship.x + Math.random() * 40 - 20, ship.y + 10));
+            }
+        }
+    }
+    
+    // 潜水艦の動き（ゲームオーバー後もしばらく継続）
+    submarines.forEach((sub, index) => {
+        sub.update();
+        if (sub.isOffScreen()) {
+            submarines.splice(index, 1);
+        }
+    });
+    
+    // クラーケンの動き（ゲームオーバー後もしばらく継続）
+    krakens.forEach((kraken, index) => {
+        kraken.update();
+        if (kraken.isDead()) {
+            krakens.splice(index, 1);
+        }
+    });
+    
+    // 敵魚雷の動き（ゲームオーバー後もしばらく継続）
+    enemyTorpedoes.forEach((torpedo, index) => {
+        torpedo.update();
+        if (torpedo.isOffScreen()) {
+            enemyTorpedoes.splice(index, 1);
+        }
+    });
+    
+    // 爆弾の動き（ゲームオーバー後も継続）
+    bombs.forEach((bomb, index) => {
+        bomb.update();
+        if (bomb.isOffScreen()) {
+            bombs.splice(index, 1);
+        }
+    });
+}
+
 function updateGame() {
+    // ゲームオーバー後でもエフェクト系は継続
+    updateEffects();
+    
     if (!gameRunning) return;
     
     // 船の移動
@@ -1201,14 +1275,6 @@ function updateGame() {
     bombs.forEach((bomb, index) => {
         bomb.update();
         if (bomb.isOffScreen()) {
-            missedBombs++;
-            // 連続で5発外すと爆弾減少ペナルティ
-            if (missedBombs >= 5) {
-                bombsLeft = Math.max(0, bombsLeft - 2);
-                missedBombs = 0;
-                showMessage("連続ミス！爆弾-2", canvas.width/2, canvas.height - 50);
-                safePlaySound('playHurt');
-            }
             bombs.splice(index, 1);
         }
     });
@@ -1367,7 +1433,6 @@ function updateGame() {
         showMessage(`レベル ${level}！+${levelDiff * 5} 爆弾！`, canvas.width/2, canvas.height/2);
         safePlaySound('playLevelUp');
         consecutiveHits = 0; // 連続ヒット数リセット
-        missedBombs = 0; // ミス数リセット
     }
     
     // 時間経過による爆弾補充（45秒毎に1発）
@@ -1384,11 +1449,11 @@ function updateGame() {
         invulnerableTime--;
     }
     
-    // ゲームオーバー判定
-    if ((bombsLeft <= 0 && bombs.length === 0) || hitCount >= maxHitCount) {
+    // ゲームオーバー判定（3回被弾のみ）
+    if (hitCount >= maxHitCount) {
         gameRunning = false;
         safePlaySound('playGameOver');
-        const reason = hitCount >= maxHitCount ? '3回被弾' : '爆弾切れ';
+        const reason = '3回被弾';
         
         // UI表示制御
         document.getElementById('startText').style.display = 'block';
@@ -1712,7 +1777,6 @@ async function startGame() {
     consecutiveHits = 0;
     hitCount = 0;
     invulnerableTime = 0;
-    missedBombs = 0;
     lastBombRefillTime = Date.now();
     bombs = [];
     submarines = [];
