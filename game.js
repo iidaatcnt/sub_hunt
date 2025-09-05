@@ -694,8 +694,8 @@ function drawGame() {
 function checkDemoMode() {
     if (demoState.isDemo || gameRunning) return;
     
-    // 5秒間操作がなければデモモード開始
-    if (Date.now() - demoState.lastUserInput > 5000) {
+    // 30秒間操作がなければデモモード開始
+    if (Date.now() - demoState.lastUserInput > 30000) {
         startDemo();
     }
 }
