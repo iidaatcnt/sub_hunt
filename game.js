@@ -15,6 +15,13 @@ let invulnerableTime = 0;
 let missedBombs = 0;
 let enemyTorpedoes = [];
 let smokeParticles = []; // 煙エフェクト用
+let bubbleParticles = []; // 泡エフェクト用
+
+// 戦艦沈没状態管理
+let shipSinking = false;
+let sinkingStartTime = 0;
+let sinkingDuration = 4000; // 4秒かけて沈没
+let sinkStartY = 80; // 戦艦の初期Y位置
 
 // デモモード管理
 let demoState = {
@@ -31,7 +38,7 @@ let keys = {};
 let ship = { x: 400, y: 80, width: 40, height: 20, speed: 3 };
 let bombs = [];
 let submarines = [];
-let whales = [];
+let krakens = [];
 let explosions = [];
 let messages = [];
 
@@ -179,26 +186,48 @@ class SoundSystem {
         oscillator.stop(this.audioContext.currentTime + 0.2);
     }
     
-    playWhaleSound() {
+    playKrakenSound() {
         if (!this.soundEnabled) return;
         
-        const nodes = this.createOscillator(80, 'sine');
+        const nodes = this.createOscillator(40, 'sawtooth'); // より恐ろしいsaw波
         if (!nodes) return;
         
         const { oscillator, gainNode } = nodes;
         
-        // クジラの鳴き声：低音の長いトーン
-        oscillator.frequency.setValueAtTime(60, this.audioContext.currentTime);
-        oscillator.frequency.linearRampToValueAtTime(120, this.audioContext.currentTime + 0.5);
-        oscillator.frequency.linearRampToValueAtTime(80, this.audioContext.currentTime + 1.0);
+        // クラーケンの恐ろしい鳴き声：低くて不気味な音
+        oscillator.frequency.setValueAtTime(30, this.audioContext.currentTime);
+        oscillator.frequency.linearRampToValueAtTime(80, this.audioContext.currentTime + 0.3);
+        oscillator.frequency.linearRampToValueAtTime(20, this.audioContext.currentTime + 0.7);
+        oscillator.frequency.linearRampToValueAtTime(60, this.audioContext.currentTime + 1.2);
+        oscillator.frequency.linearRampToValueAtTime(25, this.audioContext.currentTime + 1.8);
         
+        // 音量エンベロープも不気味に
         gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
-        gainNode.gain.linearRampToValueAtTime(this.masterVolume * 0.3, this.audioContext.currentTime + 0.1);
-        gainNode.gain.linearRampToValueAtTime(this.masterVolume * 0.3, this.audioContext.currentTime + 0.8);
-        gainNode.gain.exponentialRampToValueAtTime(0.001, this.audioContext.currentTime + 1.0);
+        gainNode.gain.linearRampToValueAtTime(this.masterVolume * 0.4, this.audioContext.currentTime + 0.1);
+        gainNode.gain.linearRampToValueAtTime(this.masterVolume * 0.2, this.audioContext.currentTime + 0.4);
+        gainNode.gain.linearRampToValueAtTime(this.masterVolume * 0.5, this.audioContext.currentTime + 0.8);
+        gainNode.gain.linearRampToValueAtTime(this.masterVolume * 0.1, this.audioContext.currentTime + 1.5);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, this.audioContext.currentTime + 2.0);
         
         oscillator.start(this.audioContext.currentTime);
-        oscillator.stop(this.audioContext.currentTime + 1.0);
+        oscillator.stop(this.audioContext.currentTime + 2.0);
+        
+        // 追加の不気味なエフェクト音
+        setTimeout(() => {
+            const nodes2 = this.createOscillator(15, 'triangle');
+            if (nodes2) {
+                const { oscillator: osc2, gainNode: gain2 } = nodes2;
+                osc2.frequency.setValueAtTime(15, this.audioContext.currentTime);
+                osc2.frequency.linearRampToValueAtTime(45, this.audioContext.currentTime + 0.5);
+                
+                gain2.gain.setValueAtTime(0, this.audioContext.currentTime);
+                gain2.gain.linearRampToValueAtTime(this.masterVolume * 0.2, this.audioContext.currentTime + 0.1);
+                gain2.gain.exponentialRampToValueAtTime(0.001, this.audioContext.currentTime + 0.8);
+                
+                osc2.start(this.audioContext.currentTime);
+                osc2.stop(this.audioContext.currentTime + 0.8);
+            }
+        }, 200);
     }
     
     playShipEngine() {
@@ -429,6 +458,76 @@ class SmokeParticle {
     
     isDead() {
         return this.life <= 0;
+    }
+}
+
+class BubbleParticle {
+    constructor(x, y) {
+        this.x = x + (Math.random() - 0.5) * 40;
+        this.y = y;
+        this.velocityX = (Math.random() - 0.5) * 1.0;
+        this.velocityY = -Math.random() * 1.5 - 0.5; // 上向きに泡が浮上
+        this.size = Math.random() * 4 + 2; // 2-6の大きさ
+        this.life = 1.0;
+        this.maxLife = 80 + Math.random() * 40; // 1.3-2秒程度
+        this.age = 0;
+        this.wobble = Math.random() * Math.PI * 2; // 揺らぎのための位相
+        this.wobbleSpeed = 0.1 + Math.random() * 0.05;
+    }
+    
+    update() {
+        this.x += this.velocityX;
+        this.y += this.velocityY;
+        this.age++;
+        this.life = 1.0 - (this.age / this.maxLife);
+        
+        // 泡の上昇に伴う横揺れ
+        this.wobble += this.wobbleSpeed;
+        this.x += Math.sin(this.wobble) * 0.3;
+        
+        // 徐々に小さくなる（表面に近づくにつれて）
+        if (this.life < 0.5) {
+            this.size *= 0.995;
+        }
+        
+        // 水面に近づくと速度が上がる
+        if (this.y < seaLevel + 20) {
+            this.velocityY -= 0.02;
+        }
+    }
+    
+    draw() {
+        if (this.life <= 0 || this.y < seaLevel) return; // 水面に達したら消える
+        
+        ctx.save();
+        
+        const alpha = this.life * 0.8;
+        
+        // 泡の描画 - 水色で透明感のある円
+        const gradient = ctx.createRadialGradient(
+            this.x - this.size * 0.3, this.y - this.size * 0.3, 0,
+            this.x, this.y, this.size
+        );
+        gradient.addColorStop(0, `rgba(200, 240, 255, ${alpha})`);
+        gradient.addColorStop(0.7, `rgba(150, 220, 255, ${alpha * 0.5})`);
+        gradient.addColorStop(1, `rgba(100, 200, 255, ${alpha * 0.2})`);
+        
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // ハイライトで光沢感を追加
+        ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.6})`;
+        ctx.beginPath();
+        ctx.arc(this.x - this.size * 0.3, this.y - this.size * 0.3, this.size * 0.3, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.restore();
+    }
+    
+    isDead() {
+        return this.life <= 0 || this.y < seaLevel;
     }
 }
 
@@ -673,7 +772,7 @@ class Submarine {
     }
 }
 
-class Whale {
+class Kraken {
     constructor() {
         this.x = Math.random() * (canvas.width - 80);
         this.y = seaLevel + 150 + Math.random() * 250;
@@ -683,6 +782,8 @@ class Whale {
         this.speedY = (Math.random() - 0.5) * 0.5;
         this.points = 500;
         this.tailOffset = 0;
+        this.hp = 2; // クラーケンは2発で撃破
+        this.maxHp = 2;
     }
     
     update() {
@@ -706,44 +807,96 @@ class Whale {
     }
     
     draw() {
-        // クジラの本体（楕円形）
-        ctx.fillStyle = '#4169E1';
+        // クラーケンの本体（ダメージに応じて色を変化）
+        let bodyColor = '#2F4F2F'; // 通常の暗緑色
+        if (this.hp === 1) {
+            bodyColor = '#4F2F2F'; // ダメージ時は暗赤緑色
+        }
+        ctx.fillStyle = bodyColor;
         ctx.beginPath();
         ctx.ellipse(this.x + this.width/2, this.y + this.height/2, this.width/2, this.height/2, 0, 0, Math.PI * 2);
         ctx.fill();
         
-        // 尻尾
-        ctx.fillStyle = '#4169E1';
-        let tailX = this.speedX > 0 ? this.x - 15 : this.x + this.width + 5;
-        let tailY = this.y + this.height/2;
-        let tailWave = Math.sin(this.tailOffset) * 5;
+        // クラーケンの触手（複数）
+        ctx.fillStyle = '#1C3A1C'; // さらに暗い緑
+        ctx.lineWidth = 3;
+        
+        // 8本の触手を描画
+        for (let i = 0; i < 8; i++) {
+            let angle = (i * Math.PI * 2) / 8;
+            let tentacleWave = Math.sin(this.tailOffset + i) * 8;
+            let startX = this.x + this.width/2 + Math.cos(angle) * (this.width/3);
+            let startY = this.y + this.height/2 + Math.sin(angle) * (this.height/3);
+            let endX = startX + Math.cos(angle) * (25 + tentacleWave);
+            let endY = startY + Math.sin(angle) * (25 + tentacleWave);
+            
+            // 触手の描画（徐々に細くなる）
+            for (let j = 0; j < 3; j++) {
+                let progress = j / 3;
+                let currentX = startX + (endX - startX) * progress;
+                let currentY = startY + (endY - startY) * progress;
+                let nextX = startX + (endX - startX) * (progress + 0.33);
+                let nextY = startY + (endY - startY) * (progress + 0.33);
+                
+                ctx.strokeStyle = `rgba(28, 58, 28, ${0.8 - progress * 0.3})`;
+                ctx.lineWidth = 4 - j * 1.2;
+                ctx.beginPath();
+                ctx.moveTo(currentX, currentY);
+                ctx.lineTo(nextX, nextY);
+                ctx.stroke();
+                
+                // 吸盤を描画
+                if (j < 2) {
+                    ctx.fillStyle = `rgba(60, 80, 60, ${0.6 - progress * 0.2})`;
+                    ctx.beginPath();
+                    ctx.arc(currentX + (Math.random() - 0.5) * 3, currentY + (Math.random() - 0.5) * 3, 
+                            2 - j * 0.5, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        }
+        
+        // 恐ろしい目（赤く光る）
+        ctx.fillStyle = '#8B0000'; // 暗赤色
+        let eyeX1 = this.x + this.width/2 - 12;
+        let eyeX2 = this.x + this.width/2 + 12;
+        let eyeY = this.y + this.height/2 - 8;
         
         ctx.beginPath();
-        ctx.moveTo(tailX, tailY);
-        ctx.lineTo(tailX - 10, tailY - 15 + tailWave);
-        ctx.lineTo(tailX - 10, tailY + 15 + tailWave);
-        ctx.closePath();
+        ctx.arc(eyeX1, eyeY, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(eyeX2, eyeY, 8, 0, Math.PI * 2);
         ctx.fill();
         
-        // 目
+        // 目の光る部分
+        ctx.fillStyle = '#FF0000';
+        ctx.beginPath();
+        ctx.arc(eyeX1, eyeY, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(eyeX2, eyeY, 4, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 恐ろしい口（牙付き）
+        ctx.fillStyle = '#000000';
+        ctx.beginPath();
+        ctx.ellipse(this.x + this.width/2, this.y + this.height/2 + 10, 15, 8, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 牙
         ctx.fillStyle = 'white';
-        let eyeX = this.speedX > 0 ? this.x + 15 : this.x + this.width - 25;
         ctx.beginPath();
-        ctx.arc(eyeX, this.y + 12, 6, 0, Math.PI * 2);
+        ctx.moveTo(this.x + this.width/2 - 8, this.y + this.height/2 + 6);
+        ctx.lineTo(this.x + this.width/2 - 6, this.y + this.height/2 + 14);
+        ctx.lineTo(this.x + this.width/2 - 4, this.y + this.height/2 + 6);
         ctx.fill();
         
-        ctx.fillStyle = 'black';
         ctx.beginPath();
-        ctx.arc(eyeX, this.y + 12, 3, 0, Math.PI * 2);
+        ctx.moveTo(this.x + this.width/2 + 8, this.y + this.height/2 + 6);
+        ctx.lineTo(this.x + this.width/2 + 6, this.y + this.height/2 + 14);
+        ctx.lineTo(this.x + this.width/2 + 4, this.y + this.height/2 + 6);
         ctx.fill();
-        
-        // 口
-        ctx.strokeStyle = '#000080';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        let mouthX = this.speedX > 0 ? this.x + 5 : this.x + this.width - 15;
-        ctx.arc(mouthX, this.y + 25, 8, 0, Math.PI);
-        ctx.stroke();
         
         // 水しぶき（たまに）
         if (Math.random() < 0.1) {
@@ -866,9 +1019,9 @@ function spawnSubmarine() {
     }
 }
 
-function spawnWhale() {
-    if (whales.length < 1 && Math.random() < 0.01) {
-        whales.push(new Whale());
+function spawnKraken() {
+    if (krakens.length < 1 && Math.random() < 0.01) {
+        krakens.push(new Kraken());
     }
 }
 
@@ -905,25 +1058,36 @@ function checkCollisions() {
         });
         
         // クジラとの衝突
-        whales.forEach((whale, whaleIndex) => {
+        krakens.forEach((kraken, krakenIndex) => {
             let distance = Math.sqrt(
-                Math.pow(bomb.x - (whale.x + whale.width/2), 2) +
-                Math.pow(bomb.y - (whale.y + whale.height/2), 2)
+                Math.pow(bomb.x - (kraken.x + kraken.width/2), 2) +
+                Math.pow(bomb.y - (kraken.y + kraken.height/2), 2)
             );
-            if (distance < whale.width/2) {
+            if (distance < kraken.width/2) {
                 explosions.push(new Explosion(bomb.x, bomb.y));
                 safePlaySound('playExplosion');
-                safePlaySound('playWhaleSound');
-                score += whale.points;
-                consecutiveHits++;
                 
-                // クジラ撃破で爆弾+3（スコアペナルティのみ）
-                bombsLeft += 3;
-                showMessage("クジラ撃破！+3 爆弾", bomb.x, bomb.y - 30);
-                soundSystem.playPowerUp();
+                // クラーケンのHPを減らす
+                kraken.hp--;
+                
+                if (kraken.hp <= 0) {
+                    // 撃破時
+                    safePlaySound('playKrakenSound');
+                    score += kraken.points;
+                    consecutiveHits++;
+                    
+                    // クラーケン撃破で爆弾+3
+                    bombsLeft += 3;
+                    showMessage("クラーケン撃破！+3 爆弾", bomb.x, bomb.y - 30);
+                    safePlaySound('playPowerUp');
+                    
+                    krakens.splice(krakenIndex, 1);
+                } else {
+                    // ダメージ時
+                    showMessage(`クラーケンにダメージ！ 残りHP: ${kraken.hp}`, bomb.x, bomb.y - 30);
+                }
                 
                 bombs.splice(bombIndex, 1);
-                whales.splice(whaleIndex, 1);
             }
         });
     });
@@ -964,7 +1128,7 @@ function updateGame() {
     });
     
     // クジラの更新
-    whales.forEach(whale => whale.update());
+    krakens.forEach(kraken => kraken.update());
     
     // 爆弾の更新
     bombs.forEach((bomb, index) => {
@@ -1011,12 +1175,22 @@ function updateGame() {
                     smokeParticles.push(new SmokeParticle(ship.x + ship.width/2, ship.y - 10, 'light'));
                 }
             } else if (hitCount >= 3) {
-                // 3回目: ゲームオーバー用の大量煙エフェクト
-                for (let i = 0; i < 25; i++) {
+                // 3回目: 沈没開始 - 大量煙と泡エフェクト
+                shipSinking = true;
+                sinkingStartTime = Date.now();
+                sinkStartY = ship.y;
+                
+                // 大量の煙エフェクト
+                for (let i = 0; i < 35; i++) {
                     smokeParticles.push(new SmokeParticle(ship.x + ship.width/2, ship.y - 5, 'heavy'));
                 }
-                for (let i = 0; i < 15; i++) {
+                for (let i = 0; i < 20; i++) {
                     smokeParticles.push(new SmokeParticle(ship.x + ship.width/2, ship.y - 15, 'light'));
+                }
+                
+                // 泡エフェクトを開始
+                for (let i = 0; i < 15; i++) {
+                    bubbleParticles.push(new BubbleParticle(ship.x + ship.width/2, ship.y + ship.height));
                 }
             }
             
@@ -1035,8 +1209,46 @@ function updateGame() {
         }
     });
     
-    // 継続的な煙生成（被攻撃状態に応じて）
-    if (hitCount > 0) {
+    // 泡パーティクルの更新
+    bubbleParticles.forEach((particle, index) => {
+        particle.update();
+        if (particle.isDead()) {
+            bubbleParticles.splice(index, 1);
+        }
+    });
+    
+    // 戦艦沈没処理
+    if (shipSinking) {
+        const elapsed = Date.now() - sinkingStartTime;
+        const progress = Math.min(elapsed / sinkingDuration, 1.0);
+        
+        // 戦艦を徐々に沈没させる（Y座標を増加）
+        ship.y = sinkStartY + progress * (seaLevel + 40 - sinkStartY);
+        
+        // 沈没中の継続的なエフェクト
+        if (Math.random() < 0.9) { // 90%の確率で煙
+            smokeParticles.push(new SmokeParticle(ship.x + ship.width/2 + (Math.random() - 0.5) * 20, ship.y - 10, 'heavy'));
+        }
+        
+        if (Math.random() < 0.7) { // 70%の確率で泡
+            bubbleParticles.push(new BubbleParticle(ship.x + ship.width/2, ship.y + ship.height));
+        }
+        
+        // 完全に沈没したらゲームオーバー
+        if (progress >= 1.0) {
+            gameRunning = false;
+            showMessage('💥 沈没！ゲームオーバー 💥', canvas.width/2, canvas.height/2);
+            safePlaySound('playGameOver');
+            
+            // 最後の大きな泡エフェクト
+            for (let i = 0; i < 10; i++) {
+                bubbleParticles.push(new BubbleParticle(ship.x + ship.width/2, ship.y + ship.height));
+            }
+        }
+    }
+    
+    // 継続的な煙生成（被攻撃状態に応じて、沈没中でない場合）
+    if (hitCount > 0 && !shipSinking) {
         if (hitCount === 1) {
             // 1回被弾: 軽い煙を継続的に生成
             if (Math.random() < 0.6) { // 60%の確率
@@ -1077,7 +1289,7 @@ function updateGame() {
     
     // 新しい敵の生成
     if (Math.random() < 0.02) spawnSubmarine();
-    spawnWhale();
+    spawnKraken();
     
     // レベルアップチェック
     let newLevel = Math.floor(score / 1500) + 1; // レベルアップ条件を厳しく
@@ -1114,7 +1326,8 @@ function updateGame() {
         // UI表示制御
         document.getElementById('startText').style.display = 'block';
         
-        alert(`ゲーム終了！(${reason})\nスコア: ${score} レベル: ${level}`);
+        // 画面メッセージのみ表示（ポップアップなし）
+        showMessage(`💀 ゲーム終了！(${reason}) 💀\nスコア: ${score} レベル: ${level}`, canvas.width/2, canvas.height/2);
     }
 }
 
@@ -1135,11 +1348,12 @@ function drawGame() {
     
     // ゲームオブジェクトの描画
     submarines.forEach(sub => sub.draw());
-    whales.forEach(whale => whale.draw());
+    krakens.forEach(kraken => kraken.draw());
     bombs.forEach(bomb => bomb.draw());
     enemyTorpedoes.forEach(torpedo => torpedo.draw());
     explosions.forEach(explosion => explosion.draw());
     smokeParticles.forEach(particle => particle.draw());
+    bubbleParticles.forEach(particle => particle.draw());
     messages.forEach(message => message.draw());
     
     // UI更新
@@ -1327,7 +1541,7 @@ function updateDemoAI() {
                     consecutiveHits = 0;
                     hitCount = 0;
                     submarines.length = 0;
-                    whales.length = 0;
+                    krakens.length = 0;
                     bombs.length = 0;
                     explosions.length = 0;
                     messages.length = 0;
@@ -1435,12 +1649,18 @@ async function startGame() {
     lastBombRefillTime = Date.now();
     bombs = [];
     submarines = [];
-    whales = [];
+    krakens = [];
     explosions = [];
     messages = [];
     enemyTorpedoes = [];
     smokeParticles = [];
+    bubbleParticles = [];
+    
+    // 戦艦沈没状態をリセット
+    shipSinking = false;
+    sinkingStartTime = 0;
     ship.x = canvas.width / 2;
+    ship.y = 80; // 戦艦の初期Y位置をリセット
     
     // UI表示制御
     document.getElementById('startText').style.display = 'none';
